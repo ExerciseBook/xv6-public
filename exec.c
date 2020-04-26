@@ -29,6 +29,49 @@ exec(char *path, char **argv)
   ilock(ip);
   pgdir = 0;
 
+  // Check shebang header
+  char first_line[256];
+  int len = readi(ip, first_line, 0, 256);
+  if ((len > 2) && (first_line[0] == '#') && (first_line[1] == '!')) {
+    int i = 0;
+    for (i = 0; (first_line[i] != '\n') && (first_line[i] != '\r') && (i < len); i++); 
+
+    if (i == 256) goto bad;
+    
+    first_line[i] = 0;
+    char *argv_[MAXARG + 8];
+    argv_[0] = &(first_line[2]);
+
+    for(argc = 0; argv[argc]; argc++) {
+      if(argc >= MAXARG)
+        goto bad;
+
+      argv_[argc + 1] = argv[argc];
+    }
+
+    argv_[argc + 1] = 0;
+
+    if(ip){
+      iunlockput(ip);
+      end_op();
+    }
+
+    //exec_elfonly(&(first_line[2]), argv_);
+
+    path = &(first_line[2]);
+    argv = argv_;
+
+    begin_op();
+
+    if((ip = namei(path)) == 0){
+      end_op();
+      cprintf("exec: fail\n");
+      return -1;
+    }
+    ilock(ip);
+    pgdir = 0;
+  }
+
   // Check ELF header
   if(readi(ip, (char*)&elf, 0, sizeof(elf)) != sizeof(elf))
     goto bad;
