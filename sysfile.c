@@ -442,3 +442,15 @@ sys_pipe(void)
   fd[1] = fd1;
   return 0;
 }
+
+int sys_now(void)
+{
+  struct rtcdate *datetime;
+
+  if(argptr(0, (void*)&datetime, sizeof(datetime)) < 0)
+    return -1;
+
+  cmostime(datetime);
+    
+  return 0;
+}
