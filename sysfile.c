@@ -26,8 +26,13 @@ argfd(int n, int *pfd, struct file **pf)
 
   if(argint(n, &fd) < 0)
     return -1;
-  if(fd < 0 || fd >= NOFILE || (f=myproc()->ofile[fd]) == 0)
-    return -1;
+  if (myproc()->isthread) {
+    if(fd < 0 || fd >= NOFILE || (f=myproc()->parent->ofile[fd]) == 0)
+      return -1;
+  } else {
+    if(fd < 0 || fd >= NOFILE || (f=myproc()->ofile[fd]) == 0)
+      return -1;
+  }
   if(pfd)
     *pfd = fd;
   if(pf)
@@ -44,9 +49,16 @@ fdalloc(struct file *f)
   struct proc *curproc = myproc();
 
   for(fd = 0; fd < NOFILE; fd++){
-    if(curproc->ofile[fd] == 0){
-      curproc->ofile[fd] = f;
-      return fd;
+    if (curproc->isthread) {
+      if(curproc->parent->ofile[fd] == 0){
+        curproc->parent->ofile[fd] = f;
+        return fd;
+      }
+    } else {
+      if(curproc->ofile[fd] == 0){
+        curproc->ofile[fd] = f;
+        return fd;
+      }
     }
   }
   return -1;
@@ -98,7 +110,12 @@ sys_close(void)
 
   if(argfd(0, &fd, &f) < 0)
     return -1;
-  myproc()->ofile[fd] = 0;
+  
+  if (myproc()->isthread) {
+    myproc()->parent->ofile[fd] = 0;
+  } else {
+    myproc()->ofile[fd] = 0;
+  }
   fileclose(f);
   return 0;
 }
@@ -432,8 +449,13 @@ sys_pipe(void)
     return -1;
   fd0 = -1;
   if((fd0 = fdalloc(rf)) < 0 || (fd1 = fdalloc(wf)) < 0){
-    if(fd0 >= 0)
-      myproc()->ofile[fd0] = 0;
+    if(fd0 >= 0) {
+      if (myproc()->isthread) {
+        myproc()->parent->ofile[fd0] = 0;
+      } else {
+        myproc()->ofile[fd0] = 0;
+      }
+    }
     fileclose(rf);
     fileclose(wf);
     return -1;
@@ -453,4 +475,16 @@ int sys_now(void)
   cmostime(datetime);
     
   return 0;
+}
+
+int sys_thread_create(void)
+{
+  uint _funptr, _argptr;
+
+  if(argptr(0, (void*)&_funptr, sizeof(_funptr)) < 0)
+    return -1;
+
+  argptr(1, (void*)&_argptr, sizeof(_argptr));
+
+  return thread_create(_funptr, _argptr);
 }

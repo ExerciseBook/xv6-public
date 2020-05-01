@@ -24,6 +24,7 @@ char* sbrk(int);
 int sleep(int);
 int uptime(void);
 int now(void*);
+int thread_create(void* fun, void* arg);
 
 // ulib.c
 int stat(const char*, struct stat*);

@@ -109,7 +109,8 @@ exec(char *path, char **argv)
   if((sz = allocuvm(pgdir, sz, sz + 2*PGSIZE)) == 0)
     goto bad;
   clearpteu(pgdir, (char*)(sz - 2*PGSIZE));
-  sp = sz;
+  sp = sz;        // sz 到 sz + PGSIZE 是主线程的栈空间
+  // 新建线程后需要再后面增加两页 并将调用的参数写进去
 
   // Push argument strings, prepare rest of stack in ustack.
   for(argc = 0; argv[argc]; argc++) {
@@ -142,6 +143,7 @@ exec(char *path, char **argv)
   curproc->sz = sz;
   curproc->tf->eip = elf.entry;  // main
   curproc->tf->esp = sp;
+  curproc->isthread = 0;  // 这是主线程（确信）
   switchuvm(curproc);
   freevm(oldpgdir);
   return 0;

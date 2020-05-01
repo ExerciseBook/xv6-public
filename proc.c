@@ -112,6 +112,8 @@ found:
   memset(p->context, 0, sizeof *p->context);
   p->context->eip = (uint)forkret;
 
+  p->isthread = 0;
+
   return p;
 }
 
@@ -184,6 +186,11 @@ fork(void)
   struct proc *np;
   struct proc *curproc = myproc();
 
+  // 是线程吗？
+  if (curproc->isthread) {
+    return -1;
+  }
+
   // Allocate process.
   if((np = allocproc()) == 0){
     return -1;
@@ -234,37 +241,50 @@ exit(void)
   if(curproc == initproc)
     panic("init exiting");
 
-  // Close all open files.
-  for(fd = 0; fd < NOFILE; fd++){
-    if(curproc->ofile[fd]){
-      fileclose(curproc->ofile[fd]);
-      curproc->ofile[fd] = 0;
+  //cprintf("exit curproc:%d %s %d\n",curproc->pid, curproc->name, curproc->isthread);
+
+  if (curproc->isthread == 0) {
+
+    // Close all open files.
+    for(fd = 0; fd < NOFILE; fd++){
+      if(curproc->ofile[fd]){
+        fileclose(curproc->ofile[fd]);
+        curproc->ofile[fd] = 0;
+      }
     }
+
+    begin_op();
+    iput(curproc->cwd);
+    end_op();
+    curproc->cwd = 0;
+
+    acquire(&ptable.lock);
+
+    // Parent might be sleeping in wait().
+    wakeup1(curproc->parent);
+
+    // Pass abandoned children to init.
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+      if(p->parent == curproc){
+        p->parent = initproc;
+        if(p->state == ZOMBIE)
+          wakeup1(initproc);
+      }
+    }
+
+    // Jump into the scheduler, never to return.
+    curproc->state = ZOMBIE;
+    sched();
+    panic("zombie exit");
+
+  } else {
+    acquire(&ptable.lock);
+    curproc->state = ZOMBIE;
+    curproc->parent = curproc;
+    sched();
+    panic("zombie exit");
   }
 
-  begin_op();
-  iput(curproc->cwd);
-  end_op();
-  curproc->cwd = 0;
-
-  acquire(&ptable.lock);
-
-  // Parent might be sleeping in wait().
-  wakeup1(curproc->parent);
-
-  // Pass abandoned children to init.
-  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-    if(p->parent == curproc){
-      p->parent = initproc;
-      if(p->state == ZOMBIE)
-        wakeup1(initproc);
-    }
-  }
-
-  // Jump into the scheduler, never to return.
-  curproc->state = ZOMBIE;
-  sched();
-  panic("zombie exit");
 }
 
 // Wait for a child process to exit and return its pid.
@@ -335,6 +355,8 @@ scheduler(void)
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       if(p->state != RUNNABLE)
         continue;
+
+      // if (p->pid >= 3) cprintf("scheduler pid:%d[%d] name:%s eip:%x esp:%x\n", p->pid, p->isthread, p->name, p->tf->eip, p->tf->esp);
 
       // Switch to chosen process.  It is the process's job
       // to release ptable.lock and then reacquire it
@@ -531,4 +553,70 @@ procdump(void)
     }
     cprintf("\n");
   }
+}
+
+int thread_create(uint funptr, uint argptr){
+    uint pid;
+    uint new_sz;
+    uint sp;
+    uint stack[1+1];
+
+    // 获取当前进程信息
+    struct proc *curproc = myproc();
+
+    // 获取一个空闲的 PCB
+    struct proc *newproc = allocproc();
+    if(newproc == 0){
+        return -1;
+    }
+
+    // 分配空间
+    new_sz = allocuvm(curproc->pgdir, curproc->sz, curproc->sz + 2 * PGSIZE);
+    if (new_sz != curproc->sz + 2 * PGSIZE) {
+      return 0;
+    }
+    curproc->sz = new_sz;
+    newproc->sz = curproc->sz;
+    newproc->pgdir = curproc->pgdir;
+
+    // 设置进程关系
+    newproc->isthread = 1;
+    newproc->parent = curproc;
+
+    *(newproc->tf) = *(curproc->tf);    // 复制寄存器数据
+
+    newproc->tf->eip = funptr;      // 跳转亿下
+
+    sp = newproc->sz - PGSIZE;
+
+    stack[0] = 0xffffffff;
+    stack[1] = argptr;
+    sp -= 2 * 4;
+    if(copyout(newproc->pgdir, sp, stack, 2 * 4) < 0) {
+      // TODO 出错清空系统栈回收 pcb
+      return 0;
+    }
+
+    newproc->tf->esp = sp;          // 分配船新的栈空间
+  
+    // 继承文件打开状态
+    //for(int i = 0; i < NOFILE; i++)
+    //    if(curproc->ofile[i])
+    //        newproc->ofile[i] = filedup(curproc->ofile[i]);
+    //newproc->cwd = idup(curproc->cwd);
+
+    safestrcpy(newproc->name, curproc->name, sizeof(curproc->name));
+
+    pid = newproc->pid;
+
+    // cprintf("curproc:%d %s %d eip:%x\n",curproc->pid, curproc->name, curproc->isthread, curproc->tf->eip);
+    // cprintf("newproc:%d %s %d eip:%x\n",newproc->pid, newproc->name, newproc->isthread, newproc->tf->eip);
+
+    acquire(&ptable.lock);
+
+    newproc->state = RUNNABLE;
+
+    release(&ptable.lock);
+
+    return pid;
 }

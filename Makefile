@@ -184,6 +184,7 @@ UPROGS=\
 	_zombie\
 	_MT19937-64\
 	_datetime\
+	_thread_test\
 
 fs.img: mkfs README Shebang_test $(UPROGS)
 	./mkfs fs.img README Shebang_test $(UPROGS)
@@ -257,6 +258,7 @@ EXTRA=\
 	printf.c umalloc.c\
 	MT19937-64.c\
 	datetime.c\
+	thread_test.c\
 	README Shebang_test\
 	dot-bochsrc *.pl toc.* runoff runoff1 runoff.list\
 	.gdbinit.tmpl gdbutil\
